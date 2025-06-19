@@ -1,36 +1,52 @@
-import os
 import time
 from telegram import Bot
 from langchain_community.tools.yahoo_finance_news import YahooFinanceNewsTool
 
-TOKEN = "8101036051:AAEMbhWIYv22FOMV6pXcAOosEWxsy9v3jfY"
+TOKEN = "‏8101036051:AAEMbhWIYv22FOMV6pXcAOosEWxsy9v3jfY"
 CHANNEL = "@USMarketnow"
 bot = Bot(token=TOKEN)
 
-# إعداد أداة الأخبار
 news_tool = YahooFinanceNewsTool()
 
-def format_news(text):
-    short_text = text.strip()
-    if len(short_text) > 300:
-        short_text = short_text[:300] + "..."
-    footer = "\n\nقناة السوق الأمريكي العاجلة 🚨\nhttps://t.me/USMarketnow"
-    return short_text + footer
+# استخراج العنوان المناسب من الخبر
+def extract_title(text):
+    if "باول" in text or "Powell" in text:
+        return "🟥 عاجل | جيروم باول يتحدث"
+    elif "الفائدة" in text or "interest rate" in text:
+        return "🟥 عاجل | الفيدرالي الأمريكي"
+    elif "البيت الأبيض" in text or "White House" in text:
+        return "🏛️ البيت الأبيض"
+    elif "ترامب" in text:
+        return "🇺🇸 تصريحات ترامب"
+    elif "CPI" in text or "التضخم" in text:
+        return "📉 بيانات التضخم"
+    else:
+        return "📰 خبر عاجل عن السوق الأمريكي"
 
+# تنسيق الخبر في شكل نقاط + توقيع
+def format_news(text):
+    title = extract_title(text)
+    lines = text.replace(".", ".\n").replace("–", "-").split("\n")
+    body = "\n".join(["- " + l.strip() for l in lines if len(l.strip()) > 0])
+
+    # حد أقصى للطول
+    if len(body) > 900:
+        body = body[:900] + "..."
+
+    footer = "\n\n📌 قناة السوق الأمريكي العاجلة\nhttps://t.me/USMarketnow"
+    return f"{title}\n\n{body}{footer}"
+
+# إرسال الأخبار
 def send_market_news():
-    print("🔔 Fetching Market News from Yahoo Finance …")
+    print("🚀 Fetching market news...")
     try:
         articles = news_tool.run({"query": "stock market US Fed CPI earnings"})
-        print(f"🗞️ Retrieved {len(articles)} articles")
         for art in articles:
-            title = art.get("title", "")
-            summary = art.get("summary", "")
-            msg = f"📰 {title}\n{summary}"
-            bot.send_message(chat_id=CHANNEL, text=format_news(msg))
-            time.sleep(1)
-        print("✅ Market news sent.")
+            msg = format_news(art)
+            bot.send_message(chat_id=CHANNEL, text=msg)
+            time.sleep(2)
     except Exception as e:
-        print("❌ Error fetching news:", e)
+        print("❌ Error:", e)
 
 if __name__ == "__main__":
     send_market_news()
