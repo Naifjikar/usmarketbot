@@ -46,7 +46,8 @@ def is_important(text):
     return any(keyword in lowered for keyword in KEYWORDS)
 
 def format_news(entry):
-    title = extract_title(entry.title + entry.description)
+    desc = getattr(entry, 'description', '')
+    title = extract_title(entry.title + desc)
     content = entry.title.strip()
     if len(content) > 900:
         content = content[:900] + "..."
