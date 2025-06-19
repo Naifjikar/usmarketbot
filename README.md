@@ -1,50 +1,36 @@
+import os
+import time
+from telegram import Bot
+from langchain_community.tools.yahoo_finance_news import YahooFinanceNewsTool
 
-# Jalwe Halal Stock Filter Bot
+TOKEN = "8101036051:AAEMbhWIYv22FOMV6pXcAOosEWxsy9v3jfY"
+CHANNEL = "@USMarketnow"
+bot = Bot(token=TOKEN)
 
-This Telegram bot checks the Sharia compliance of a stock symbol using data from:
-- Chart Idea
-- Yaqeen
-- Filterna
+# إعداد أداة الأخبار
+news_tool = YahooFinanceNewsTool()
 
-It replies with a detailed summary and links to the JALWE channels.
+def format_news(text):
+    short_text = text.strip()
+    if len(short_text) > 300:
+        short_text = short_text[:300] + "..."
+    footer = "\n\nقناة السوق الأمريكي العاجلة 🚨\nhttps://t.me/USMarketnow"
+    return short_text + footer
 
-## Deployment on Render
+def send_market_news():
+    print("🔔 Fetching Market News from Yahoo Finance …")
+    try:
+        articles = news_tool.run({"query": "stock market US Fed CPI earnings"})
+        print(f"🗞️ Retrieved {len(articles)} articles")
+        for art in articles:
+            title = art.get("title", "")
+            summary = art.get("summary", "")
+            msg = f"📰 {title}\n{summary}"
+            bot.send_message(chat_id=CHANNEL, text=format_news(msg))
+            time.sleep(1)
+        print("✅ Market news sent.")
+    except Exception as e:
+        print("❌ Error fetching news:", e)
 
-### 1. Create a new repository on GitHub
-Upload the following files:
-- `main.py`
-- `requirements.txt`
-
-### 2. Connect GitHub to Render
-- Go to [Render.com](https://render.com)
-- Click "New" > "Web Service"
-- Select your repository
-
-### 3. Set build and start commands
-- **Build Command:** `pip install -r requirements.txt`
-- **Start Command:** `python main.py`
-
-### 4. Add Environment Variables
-Add a new variable:
-- `BOT_TOKEN`: (Your bot token from @BotFather)
-
-### 5. Done!
-Your bot is now live and will respond to stock symbols sent by users.
-
-### Example usage
-Send a message like:
-```
-AAPL
-```
-
-Bot will reply with the Sharia status of the stock.
-
----
-
-**JALWE Public Channels:**
-- Stocks: https://t.me/JalweTrader
-- Options: https://t.me/jalweoption
-- Education: https://t.me/JalweVip
-
-**Subscribe to private channels:**
-https://salla.sa/jalawe/category/AXlzxy
+if __name__ == "__main__":
+    send_market_news()
