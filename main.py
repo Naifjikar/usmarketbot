@@ -3,18 +3,21 @@ import feedparser
 import requests
 from bs4 import BeautifulSoup
 from telegram import Bot
+import telegram.error
 import datetime
 
+# توكن البوت وقناة النشر
 TOKEN = "8101036051:AAEMbhWIYv22FOMV6pXcAOosEWxsy9v3jfY"
 CHANNEL = "@USMarketnow"
 bot = Bot(token=TOKEN)
 
-# ====== 1. إعداد أخبار RSS ======
+# المصادر الرئيسية
 RSS_FEEDS = [
     "https://finance.yahoo.com/news/rssindex",
     "https://www.cnbc.com/id/100003114/device/rss/rss.html"
 ]
 
+# الكلمات المفتاحية المهمة
 KEYWORDS = [
     "باول", "powell", "الفائدة", "interest rate", "رفع الفائدة", "خفض الفائدة",
     "البيت الأبيض", "white house", "ترامب", "biden", "أوبك", "opec", "cpi",
@@ -22,6 +25,7 @@ KEYWORDS = [
     "fed", "earnings", "سوق العمل", "الذهب", "الدولار", "الفيدرالي", "انكماش", "ركود"
 ]
 
+# استخراج التصنيف المناسب للخبر
 def extract_title(text):
     text = text.lower()
     if "powell" in text or "باول" in text:
@@ -41,10 +45,12 @@ def extract_title(text):
     else:
         return "📰 خبر عاجل عن السوق الأمريكي"
 
+# هل الخبر يحتوي على كلمات مهمة
 def is_important(text):
     lowered = text.lower()
     return any(keyword in lowered for keyword in KEYWORDS)
 
+# تهيئة الرسالة
 def format_news(entry):
     desc = getattr(entry, 'description', '')
     title = extract_title(entry.title + desc)
@@ -54,7 +60,16 @@ def format_news(entry):
     footer = "\n\n📌 قناة السوق الأمريكي العاجلة\nhttps://t.me/USMarketnow"
     return f"{title}\n\n- {content}{footer}"
 
-# ====== 2. إعداد أخبار التقويم الاقتصادي من Investing.com ======
+# إرسال آمن مع إعادة المحاولة في حال حدوث Timeout
+async def safe_send(text):
+    try:
+        await bot.send_message(chat_id=CHANNEL, text=text)
+    except telegram.error.TimedOut:
+        print("⏳ إعادة المحاولة بعد خطأ Timeout")
+        await asyncio.sleep(5)
+        await bot.send_message(chat_id=CHANNEL, text=text)
+
+# جلب الأخبار الاقتصادية من investing.com
 def fetch_economic_events():
     url = "https://www.investing.com/economic-calendar/"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -67,7 +82,7 @@ def fetch_economic_events():
         for row in soup.select("tr.js-event-item"):
             impact = row.select_one(".sentiment")
             if impact and len(impact.select("i.grayFullBullishIcon")) < 3:
-                continue  # نبي فقط الأخبار ذات التأثير العالي
+                continue
 
             time = row.get("data-event-datetime")
             country = row.get("data-country")
@@ -81,12 +96,12 @@ def fetch_economic_events():
 
     return events
 
-# ====== 3. التشغيل الكامل ======
+# تشغيل البوت الكامل
 async def send_market_news():
     print("🚀 بدء فحص الأخبار...")
     sent_titles = set()
 
-    # أ) أخبار RSS المهمة
+    # أخبار RSS
     for url in RSS_FEEDS:
         feed = feedparser.parse(url)
         for entry in feed.entries:
@@ -96,16 +111,16 @@ async def send_market_news():
             if not is_important(full_text):
                 continue
             msg = format_news(entry)
-            await bot.send_message(chat_id=CHANNEL, text=msg)
+            await safe_send(msg)
             sent_titles.add(entry.title)
             await asyncio.sleep(2)
 
-    # ب) أخبار التقويم الاقتصادي
+    # أخبار اقتصادية من investing
     events = fetch_economic_events()
     if events:
         message = "📊 أخبار اقتصادية أمريكية مهمة اليوم:\n\n" + "\n".join(events[:10])
         message += "\n\n📌 قناة السوق الأمريكي العاجلة\nhttps://t.me/USMarketnow"
-        await bot.send_message(chat_id=CHANNEL, text=message)
+        await safe_send(message)
 
 if __name__ == "__main__":
     asyncio.run(send_market_news())
