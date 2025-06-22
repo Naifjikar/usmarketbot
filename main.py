@@ -6,7 +6,7 @@ import os
 from googletrans import Translator
 
 # إعدادات البوت
-TOKEN = os.environ.get("NweosBotToken")  # ضع اسم المتغير حق التوكن بالضبط هنا
+TOKEN = "8101036051:AAEMbhWIYv22FOMV6pXcAOosEWxsy9v3jfY"
 CHANNEL = "@USMarketnow"
 bot = Bot(token=TOKEN)
 
