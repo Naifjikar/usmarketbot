@@ -6,7 +6,7 @@ import os
 from googletrans import Translator
 
 # إعدادات البوت
-TOKEN = "8101036051:AAEMbhWIYv22FOMV6pXcAOosEWxsy9v3jfY"
+TOKEN = os.environ.get("NweosB...")  # ضع اسم المتغير حق التوكن بالضبط هنا
 CHANNEL = "@USMarketnow"
 bot = Bot(token=TOKEN)
 
@@ -18,7 +18,6 @@ RSS_FEEDS = [
     "https://www.cnbc.com/id/100003114/device/rss/rss.html"
 ]
 
-# كلمات مفتاحية مهمة
 KEYWORDS = [
     "باول", "الفائدة", "رفع الفائدة", "خفض الفائدة", "البيت الأبيض", "ترامب", "بايدن",
     "أوبك", "cpi", "التضخم", "تقرير الوظائف", "الفيدرالي", "الركود", "الانكماش",
@@ -26,7 +25,6 @@ KEYWORDS = [
     "الانتخابات", "ضربة", "هجوم", "قصف", "إيران", "إسرائيل", "النفط", "أرباح", "الحرب"
 ]
 
-# ملف عناوين سبق إرسالها
 SENT_FILE = "sent_titles.txt"
 
 def load_sent_titles():
@@ -39,7 +37,6 @@ def save_sent_title(title):
     with open(SENT_FILE, "a", encoding="utf-8") as f:
         f.write(title.strip() + "\n")
 
-# توليد عنوان الخبر بناءً على الكلمات
 def extract_title(text):
     text = text.lower()
     if "powell" in text or "باول" in text:
@@ -63,19 +60,15 @@ def extract_title(text):
     else:
         return "📰 عاجل | خبر هام عن السوق الأمريكي"
 
-# التحقق من أهمية الخبر
 def is_important(text):
-    lowered = text.lower()
     return any(keyword in text for keyword in KEYWORDS)
 
-# التحقق من حداثة الخبر
 def is_recent(entry):
     if not hasattr(entry, 'published_parsed'):
         return False
     pub_time = datetime(*entry.published_parsed[:6])
     return pub_time > datetime.utcnow() - timedelta(hours=1)
 
-# تنسيق الخبر وترجمته
 def format_news(entry):
     description = entry.get("description", "")
     full_text = f"{entry.title} {description}".strip()
@@ -93,9 +86,8 @@ def format_news(entry):
     footer = "\n\n📌 قناة السوق الأمريكي العاجلة 🚨\nhttps://t.me/USMarketnow"
     return f"{title}\n\n{translated}{footer}"
 
-# تنفيذ فحص الأخبار
 async def send_market_news():
-    print("🚀 بدأ فحص الأخبار...")
+    print("🚀 جاري فحص الأخبار...")
     sent_titles = load_sent_titles()
     news_sent = 0
 
@@ -113,7 +105,7 @@ async def send_market_news():
 
             full_text = entry.title + " " + entry.get("description", "")
             if not is_important(full_text):
-                print("❌ تم تجاهل خبر غير مهم:", entry.title[:60])
+                print("❌ تجاهل:", entry.title)
                 continue
 
             msg = format_news(entry)
@@ -122,5 +114,14 @@ async def send_market_news():
             news_sent += 1
             await asyncio.sleep(1)
 
+# 🚀 لوب مستمر كل 5 دقائق
+async def main_loop():
+    while True:
+        try:
+            await send_market_news()
+        except Exception as e:
+            print("❌ خطأ:", e)
+        await asyncio.sleep(300)  # انتظر 5 دقائق
+
 if __name__ == "__main__":
-    asyncio.run(send_market_news())
+    asyncio.run(main_loop())
