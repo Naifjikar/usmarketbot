@@ -61,13 +61,13 @@ def extract_title(text):
         return "📰 عاجل | خبر هام عن السوق الأمريكي"
 
 def is_important(text):
-    return any(keyword in text for keyword in KEYWORDS)
+    return any(keyword in text.lower() for keyword in KEYWORDS)
 
 def is_recent(entry):
     if not hasattr(entry, 'published_parsed'):
-        return False
+        return True
     pub_time = datetime(*entry.published_parsed[:6])
-    return pub_time > datetime.utcnow() - timedelta(hours=1)
+    return pub_time > datetime.utcnow() - timedelta(hours=2)
 
 def format_news(entry):
     description = entry.get("description", "")
@@ -77,7 +77,7 @@ def format_news(entry):
         translated = translator.translate(full_text, dest='ar').text
     except Exception as e:
         print("⚠️ فشل الترجمة:", e)
-        translated = "⚠️ لم تتم الترجمة."
+        translated = full_text[:350]
 
     if len(translated) > 350:
         translated = translated[:350] + "..."
@@ -121,7 +121,7 @@ async def main_loop():
             await send_market_news()
         except Exception as e:
             print("❌ خطأ:", e)
-        await asyncio.sleep(300)  # انتظر 5 دقائق
+        await asyncio.sleep(300)
 
 if __name__ == "__main__":
     asyncio.run(main_loop())
