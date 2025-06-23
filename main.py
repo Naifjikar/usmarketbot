@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import os
 from googletrans import Translator
 
+print("✅ Bot is starting...")
+
 # إعدادات البوت
 TOKEN = "8101036051:AAEMbhWIYv22FOMV6pXcAOosEWxsy9v3jfY"
 CHANNEL = "@USMarketnow"
@@ -18,11 +20,15 @@ RSS_FEEDS = [
     "https://www.cnbc.com/id/100003114/device/rss/rss.html"
 ]
 
+# كلمات مفتاحية إضافية
 KEYWORDS = [
     "باول", "الفائدة", "رفع الفائدة", "خفض الفائدة", "البيت الأبيض", "ترامب", "بايدن",
     "أوبك", "cpi", "التضخم", "تقرير الوظائف", "الفيدرالي", "الركود", "الانكماش",
     "سوق العمل", "الذهب", "الدولار", "البطالة", "الكونغرس", "الرئيس الأمريكي",
-    "الانتخابات", "ضربة", "هجوم", "قصف", "إيران", "إسرائيل", "النفط", "أرباح", "الحرب"
+    "الانتخابات", "ضربة", "هجوم", "قصف", "إيران", "إسرائيل", "النفط", "أرباح", "الحرب",
+    "سباكس", "spx", "مؤشر سباكس", "s&p500", "داو", "الداو", "الداو جونز",
+    "السوق الأمريكي", "الأسهم الأمريكية", "الأسواق الأمريكية", "البورصة الأمريكية",
+    "الاقتصاد الأمريكي", "هبوط السوق", "ارتفاع السوق", "وول ستريت"
 ]
 
 SENT_FILE = "sent_titles.txt"
@@ -61,7 +67,11 @@ def extract_title(text):
         return "📰 عاجل | خبر هام عن السوق الأمريكي"
 
 def is_important(text):
-    return any(keyword in text.lower() for keyword in KEYWORDS)
+    for keyword in KEYWORDS:
+        if keyword.lower() in text.lower():
+            print(f"✅ كلمة مطابقة: {keyword}")
+            return True
+    return False
 
 def is_recent(entry):
     if not hasattr(entry, 'published_parsed'):
@@ -87,11 +97,12 @@ def format_news(entry):
     return f"{title}\n\n{translated}{footer}"
 
 async def send_market_news():
-    print("🚀 جاري فحص الأخبار...")
+    print("🔍 Checking RSS feeds...")
     sent_titles = load_sent_titles()
     news_sent = 0
 
     for url in RSS_FEEDS:
+        print(f"📡 Fetching feed: {url}")
         if news_sent >= 3:
             break
         feed = feedparser.parse(url)
@@ -99,29 +110,24 @@ async def send_market_news():
             if news_sent >= 3:
                 break
             if not is_recent(entry):
+                print(f"⏱️ Ignored (old): {entry.title}")
                 continue
             if entry.title.strip() in sent_titles:
+                print(f"🔁 Already sent: {entry.title}")
                 continue
 
             full_text = entry.title + " " + entry.get("description", "")
             if not is_important(full_text):
-                print("❌ تجاهل:", entry.title)
+                print(f"❌ Not important: {entry.title}")
                 continue
 
             msg = format_news(entry)
+            print(f"📨 Sending: {entry.title}")
             await bot.send_message(chat_id=CHANNEL, text=msg, disable_web_page_preview=True)
             save_sent_title(entry.title.strip())
             news_sent += 1
             await asyncio.sleep(1)
 
-# 🚀 لوب مستمر كل 5 دقائق
-async def main_loop():
-    while True:
-        try:
-            await send_market_news()
-        except Exception as e:
-            print("❌ خطأ:", e)
-        await asyncio.sleep(300)
-
+# تنفيذ مباشر لتجربة فورية
 if __name__ == "__main__":
-    asyncio.run(main_loop())
+    asyncio.run(send_market_news())
