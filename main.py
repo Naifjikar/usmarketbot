@@ -2,8 +2,8 @@ import asyncio
 import feedparser
 from telegram import Bot
 from datetime import datetime, timedelta
-import os
 from googletrans import Translator
+import os
 import re
 
 print("✅ Bot is starting...")
@@ -20,16 +20,18 @@ RSS_FEEDS = [
 ]
 
 KEYWORDS = [
-    "الفائدة", "باول", "الذهب", "التضخم", "النفط", "الركود",
-    "الضرائب", "البيت الأبيض", "ترامب", "بايدن", "أوبك",
-    "الفيدرالي", "قانون", "السوق الأمريكي", "أرباح", "إيران",
-    "الأسواق", "الهبوط", "ارتفاع", "مؤشر", "SPX", "داو", "S&P", "NASDAQ"
+    "الفائدة", "الفيدرالي", "باول", "التضخم", "الذهب", "النفط", "الركود",
+    "البيت الأبيض", "ترامب", "بايدن", "أوبك", "البطالة", "سوق العمل",
+    "الانتخابات", "أرباح", "قانون", "إيران", "هجوم", "ضربة", "قصف"
 ]
 
 SENT_FILE = "sent_titles.txt"
 
 def load_sent_titles():
-    return set(open(SENT_FILE, encoding="utf-8").read().splitlines()) if os.path.exists(SENT_FILE) else set()
+    if os.path.exists(SENT_FILE):
+        with open(SENT_FILE, "r", encoding="utf-8") as f:
+            return set(f.read().splitlines())
+    return set()
 
 def save_sent_title(title):
     with open(SENT_FILE, "a", encoding="utf-8") as f:
@@ -39,10 +41,10 @@ def clean(text):
     return re.sub(r'[*_`]', '', text)
 
 def is_recent(entry):
-    if not hasattr(entry, 'published_parsed'):
-        return True
-    pub_time = datetime(*entry.published_parsed[:6])
-    return pub_time > datetime.utcnow() - timedelta(hours=3)
+    if hasattr(entry, 'published_parsed'):
+        pub_time = datetime(*entry.published_parsed[:6])
+        return pub_time > datetime.utcnow() - timedelta(hours=3)
+    return True
 
 def is_important(text):
     return any(word.lower() in text.lower() for word in KEYWORDS)
@@ -50,56 +52,65 @@ def is_important(text):
 def is_arabic_source(url):
     return "investing.com" in url
 
+def generate_title(text):
+    lowered = text.lower()
+    if any(k in lowered for k in ["باول", "الفائدة", "الفيدرالي", "رفع", "خفض"]):
+        return "📢 خبر عاجل عن الفيدرالي:"
+    elif any(k in lowered for k in ["التضخم", "cpi", "الأسعار"]):
+        return "📊 خبر عن التضخم:"
+    elif any(k in lowered for k in ["أرباح", "تقرير", "نتائج"]):
+        return "💰 تقرير أرباح:"
+    elif any(k in lowered for k in ["البيت الأبيض", "بايدن", "ترامب"]):
+        return "🏛️ خبر من البيت الأبيض:"
+    elif any(k in lowered for k in ["إيران", "ضربة", "قصف", "هجوم"]):
+        return "🚨 خبر أمني عاجل:"
+    else:
+        return "📍 خبر مؤثر:"
+
 async def send_news():
     sent_titles = load_sent_titles()
     print("🔍 Checking feeds...")
     for url in RSS_FEEDS:
         try:
             feed = feedparser.parse(url)
-            arabic = is_arabic_source(url)
+            arabic_source = is_arabic_source(url)
 
             for entry in feed.entries[:10]:
                 title = entry.title.strip()
+                description = entry.get("description", "").strip()
+                full_text = f"{title} {description}"
+
                 if title in sent_titles or not is_recent(entry):
                     continue
 
-                full_text = title + " " + (entry.get("description", "") or "")
                 if not is_important(full_text):
                     continue
 
-                if not arabic:
+                # الترجمة إذا ما كان المصدر عربي
+                if not arabic_source:
                     try:
                         full_text = translator.translate(full_text, dest='ar').text
                     except Exception as e:
                         print("⚠️ Translation failed:", e)
 
                 full_text = clean(full_text)
-                if len(full_text) > 350:
-                    full_text = full_text[:350] + "..."
+                if len(full_text) > 300:
+                    full_text = full_text[:300] + "..."
 
-                # 🟢 تنسيق الرسالة مع رابط القناة في النهاية
-                msg = f"""📢 *خبر عاجل مؤثر:*\n
-📰 *{title}*\n
-{full_text}
-📎 [رابط الخبر]({entry.link})
+                header = generate_title(full_text)
+                msg = f"{header}\n\n{full_text}\n📎 [رابط الخبر]({entry.link})\n\n📡 لمتابعة أهم أخبار السوق الأمريكي:\nhttps://t.me/USMarketnow"
 
-📡 لمتابعة أهم أخبار السوق الأمريكي:
-https://t.me/USMarketnow
-"""
                 await bot.send_message(chat_id=CHANNEL, text=msg, parse_mode="Markdown", disable_web_page_preview=True)
                 print("✅ Sent:", title)
                 save_sent_title(title)
                 await asyncio.sleep(1)
 
         except Exception as e:
-            print("❌ Feed error:", url, e)
+            print("❌ Error processing feed:", url, e)
 
 async def loop_forever():
     while True:
-        try:
-            await send_news()
-        except Exception as e:
-            print("❌ Unexpected error:", e)
+        await send_news()
         await asyncio.sleep(300)
 
 if __name__ == "__main__":
