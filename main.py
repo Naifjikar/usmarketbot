@@ -8,16 +8,29 @@ CHANNEL = "@USMarketnow"
 POLYGON_KEY = "ht3apHm7nJA2VhvBynMHEcpRI11VSRbq"
 
 PRICE_MIN, PRICE_MAX = 0.01, 10.0
-INTERVAL = 180
+
+# يشتغل طوال الوقت: كل كم ثانية يفحص أخبار جديدة
+INTERVAL = 60  # دقيقة (غيّرها لو تبي أسرع/أبطأ)
+
+MAX_NEWS = 60
+MAX_TICKERS_PER_NEWS = 8
 STATE_FILE = "news_state.json"
-MAX_NEWS = 40
-MAX_TICKERS_PER_NEWS = 6
 
 FOOTER = (
     "\n\nتابعنا لمتابعة الاخبار اللحظية\n"
     "البورصة الامريكية | عاجل ⚠️\n"
     "https://t.me/USMarketnow"
 )
+
+# فلتر لمنع أخبار الدعاوى والمحامين (المزعجة)
+BLOCK_KEYWORDS = [
+    "class action", "lawsuit", "law firm", "investors are encouraged", "deadline",
+    "securities litigation", "securities class action", "litigation",
+    "rosen", "pomerantz", "glancy", "levi & korsinsky", "korsinsky",
+    "the rosen law firm", "bronstein", "schall law", "rigrodsky", "kahn swick",
+    "kirby mcinerney", "lowey", "gross law", "portnoy", "faruqi", "abramson",
+    "securities fraud", "shareholder alert", "investigation", "alert"
+]
 
 bot = Bot(token=TOKEN)
 tr = GoogleTranslator(source="auto", target="ar")
@@ -35,23 +48,25 @@ def translate(text: str) -> str:
 state = json.load(open(STATE_FILE, "r", encoding="utf-8")) if os.path.exists(STATE_FILE) else {}
 
 def save_state():
+    # احتفظ بآخر 30 يوم فقط
     cutoff = time.time() - 30 * 24 * 3600
     compact = {k: v for k, v in state.items() if v >= cutoff}
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(compact, f, ensure_ascii=False, indent=2)
 
-def seen(uid: str) -> bool:
-    return uid in state
-
-def mark(uid: str):
-    state[uid] = time.time()
-    save_state()
+def make_uid(n: dict) -> str:
+    nid = str(n.get("id") or "").strip()
+    if nid:
+        return f"id:{nid}"
+    title = (n.get("title") or "").strip().lower()
+    pub = (n.get("published_utc") or "").strip()
+    return f"tp:{title}|{pub}"
 
 # ====== POLYGON ======
 def pg(path, params=None):
     params = params or {}
     params["apiKey"] = POLYGON_KEY
-    r = requests.get("https://api.polygon.io" + path, params=params, timeout=20)
+    r = requests.get("https://api.polygon.io" + path, params=params, timeout=25)
     r.raise_for_status()
     return r.json()
 
@@ -62,6 +77,7 @@ def get_price(sym: str):
     now = time.time()
     if sym in _price_cache and now - _price_cache[sym][1] < 60:
         return _price_cache[sym][0]
+
     try:
         snap = pg(f"/v2/snapshot/locale/us/markets/stocks/tickers/{sym}")
         p = snap.get("ticker", {}).get("day", {}).get("c")
@@ -77,49 +93,50 @@ def get_price(sym: str):
     except Exception:
         return None
 
-def make_uid(n: dict) -> str:
-    # أقوى منع تكرار: id لو موجود
-    nid = str(n.get("id") or "").strip()
-    if nid:
-        return f"id:{nid}"
-    # fallback: title + time
-    title = (n.get("title") or "").strip().lower()
-    pub = (n.get("published_utc") or "").strip()
-    return f"tp:{title}|{pub}"
+def is_blocked_title(title: str) -> bool:
+    t = (title or "").lower()
+    return any(k in t for k in BLOCK_KEYWORDS)
 
 # ====== LOOP ======
 async def run():
     while True:
         try:
-            news = pg("/v2/reference/news", {
+            data = pg("/v2/reference/news", {
                 "limit": MAX_NEWS,
                 "order": "desc",
                 "sort": "published_utc"
-            }).get("results", [])
+            })
+            news = data.get("results", []) or []
 
             for n in news:
                 uid = make_uid(n)
-                if seen(uid):
-                    continue  # ✅ منع تكرار الخبر بالكامل (حتى لو فيه أكثر من سهم)
+                if uid in state:
+                    continue  # ✅ منع تكرار الخبر بالكامل
+
+                title_en = n.get("title") or ""
+                if is_blocked_title(title_en):
+                    state[uid] = time.time()  # نعلّم عليه حتى ما يرجع يطلع كل دقيقة
+                    continue
 
                 tickers = n.get("tickers", []) or []
-                # نختار أول سهم ضمن السعر (عشان ما نكرر نفس الخبر بعدة أسهم)
-                chosen = None
-                chosen_price = None
+                chosen, chosen_price = None, None
+
+                # اختر أول سهم ضمن السعر المطلوب
                 for sym in tickers[:MAX_TICKERS_PER_NEWS]:
                     sym = str(sym).upper().strip()
                     if not re.match(r"^[A-Z.\-]{1,10}$", sym):
                         continue
                     p = get_price(sym)
                     if p and (PRICE_MIN <= p <= PRICE_MAX):
-                        chosen = sym
-                        chosen_price = p
+                        chosen, chosen_price = sym, p
                         break
 
                 if not chosen:
+                    # علّم الخبر حتى ما يعيد تدويره
+                    state[uid] = time.time()
                     continue
 
-                title_ar = translate(n.get("title", ""))
+                title_ar = translate(title_en)
                 msg = f"🚨 <b>{chosen}</b> | ${chosen_price:.2f}\n📰 {title_ar}{FOOTER}"
 
                 await bot.send_message(
@@ -129,7 +146,8 @@ async def run():
                     disable_web_page_preview=True
                 )
 
-                mark(uid)  # ✅ نسجل الخبر بعد الإرسال
+                state[uid] = time.time()
+                save_state()
                 await asyncio.sleep(1)
 
         except Exception as e:
