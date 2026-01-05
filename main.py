@@ -19,7 +19,7 @@ FOOTER = (
     "https://t.me/USMarketnow"
 )
 
-# ================= BLOCKED (قانوني) =================
+# ================= BLOCK (قانوني/مكاتب محاماة) =================
 BLOCK_KEYWORDS = [
     "class action", "lawsuit", "law firm", "investors are encouraged",
     "deadline", "litigation", "rosen", "pomerantz", "glancy",
@@ -27,7 +27,26 @@ BLOCK_KEYWORDS = [
     "shareholder alert", "securities fraud"
 ]
 
-# ================= STRONG / WEAK =================
+# ================= WEAK (قوائم/ترشيحات/مقالات رأي) =================
+WEAK_KEYWORDS = [
+    "how to", "what is", "explained", "opinion", "analysis",
+    "preview", "stocks to watch", "watchlist",
+    "top", "best", "favorite", "picks",
+    "to buy", "buy now", "buying now",
+    "prediction", "forecast", "price target",
+    "analyst", "rating", "ratings", "upgrade", "downgrade",
+    "why you should", "here's", "this week", "these stocks",
+    "3 stocks", "5 stocks", "10 stocks", "top stocks",
+    "undervalued", "overvalued", "best ai stocks", "ai stocks"
+]
+
+AR_WEAK = [
+    "أفضل", "افضل", "للشراء", "شراء الآن", "للشراء الآن",
+    "ترشيحات", "قائمة", "قوائم", "توصيات", "أسهم مفضلة",
+    "أفضل أسهم", "افضل اسهم", "أسهم للشراء", "للشراء اليوم"
+]
+
+# ================= STRONG (أخبار قوية) =================
 STRONG_KEYWORDS = {
     # علاج / أبحاث
     "fda": 3, "approval": 3, "cleared": 2,
@@ -40,39 +59,31 @@ STRONG_KEYWORDS = {
     "acquisition": 4, "acquires": 4, "to acquire": 4,
     "merger": 4, "merges": 4,
     "definitive agreement": 4,
-    "deal": 2, "contract": 3, "agreement": 2,
-    "partnership": 2, "strategic partnership": 3,
+    "contract": 3, "agreement": 2,
+    "strategic partnership": 3,
 
     # أرباح / نتائج
     "earnings": 3, "eps": 4, "revenue": 3,
-    "guidance": 4, "raises guidance": 5,
+    "guidance": 4, "raises guidance": 5, "cuts guidance": 4,
     "beats": 4, "misses": 4,
     "profit": 3, "net income": 3,
 
-    # تقنية / إطلاق
+    # تقنية / إطلاق / عقود
     "launch": 2, "launches": 2,
     "new product": 3, "platform": 2,
-    "ai": 2, "artificial intelligence": 2,
     "chip": 2, "cybersecurity": 2,
+    "contract award": 4, "awarded": 3,
 
-    # أحداث أخرى
+    # أحداث أخرى قوية
     "buyback": 3, "share repurchase": 3,
-    "stock split": 4, "reverse split": 4,
-    "dividend": 2
+    "stock split": 4, "reverse split": 4
 }
 
-WEAK_KEYWORDS = [
-    "how", "what is", "explained", "opinion", "analysis",
-    "preview", "stocks to watch", "top", "best",
-    "why", "could", "might", "price target",
-    "rating", "upgrade", "downgrade", "outlook"
-]
-
-SCORE_THRESHOLD = 3   # 🔥 الشرط المطلوب
+SCORE_THRESHOLD = 3  # ✅ الشرط المطلوب
 
 # ================= INIT =================
 bot = Bot(token=TOKEN)
-translator = GoogleTranslator(source="auto", target="ar")
+tr = GoogleTranslator(source="auto", target="ar")
 
 state = json.load(open(STATE_FILE, "r", encoding="utf-8")) if os.path.exists(STATE_FILE) else {}
 
@@ -83,29 +94,43 @@ def save_state():
         json.dump(compact, f, ensure_ascii=False, indent=2)
 
 def make_uid(n: dict) -> str:
-    if n.get("id"):
-        return f"id:{n['id']}"
-    return f"{(n.get('title','')).lower()}|{n.get('published_utc','')}"
+    nid = str(n.get("id") or "").strip()
+    if nid:
+        return f"id:{nid}"
+    title = (n.get("title") or "").strip().lower()
+    pub = (n.get("published_utc") or "").strip()
+    return f"tp:{title}|{pub}"
 
 def translate(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
     try:
-        return translator.translate(text)
+        return tr.translate(text)
     except Exception:
         return text
 
-def news_score(title: str, desc: str = "") -> int:
+def is_weak(title_en: str, title_ar: str) -> bool:
+    t = (title_en or "").lower()
+    if any(w in t for w in WEAK_KEYWORDS):
+        return True
+    a = (title_ar or "")
+    return any(w in a for w in AR_WEAK)
+
+def score_news(title: str, desc: str = "") -> int:
     t = (title or "").lower()
     d = (desc or "").lower()
     text = f"{t} {d}"
 
+    # إذا فيه ضعف واضح نوقف مباشرة
     if any(w in text for w in WEAK_KEYWORDS):
         return 0
 
-    score = 0
+    s = 0
     for k, pts in STRONG_KEYWORDS.items():
         if k in text:
-            score += pts
-    return score
+            s += pts
+    return s
 
 def pg(path, params=None):
     params = params or {}
@@ -114,7 +139,7 @@ def pg(path, params=None):
     r.raise_for_status()
     return r.json()
 
-_price_cache = {}
+_price_cache = {}  # sym -> (price, ts)
 
 def get_price(sym: str):
     sym = sym.upper().strip()
@@ -127,14 +152,15 @@ def get_price(sym: str):
         p = snap.get("ticker", {}).get("day", {}).get("c")
         if p is None:
             p = snap.get("ticker", {}).get("lastTrade", {}).get("p")
-        if p:
-            p = float(p)
-            if p > 0:
-                _price_cache[sym] = (p, now)
-                return p
+        if p is None:
+            return None
+        p = float(p)
+        if p <= 0:
+            return None
+        _price_cache[sym] = (p, now)
+        return p
     except Exception:
-        pass
-    return None
+        return None
 
 # ================= LOOP =================
 async def run():
@@ -144,28 +170,39 @@ async def run():
                 "limit": MAX_NEWS,
                 "order": "desc",
                 "sort": "published_utc"
-            }).get("results", [])
+            }).get("results", []) or []
 
             for n in news:
                 uid = make_uid(n)
                 if uid in state:
                     continue
 
-                title_en = n.get("title", "")
-                desc_en = n.get("description", "")
+                title_en = n.get("title", "") or ""
+                desc_en = n.get("description", "") or ""
 
+                # منع أخبار المحامين
                 if any(b in title_en.lower() for b in BLOCK_KEYWORDS):
                     state[uid] = time.time()
                     continue
 
-                score = news_score(title_en, desc_en)
-                if score < SCORE_THRESHOLD:
+                # ترجمة سريعة للعناوين (للفلترة العربية + الرسالة)
+                title_ar = translate(title_en)
+
+                # منع الترشيحات والقوائم (EN + AR)
+                if is_weak(title_en, title_ar):
                     state[uid] = time.time()
                     continue
 
+                # شرط القوة (Score)
+                if score_news(title_en, desc_en) < SCORE_THRESHOLD:
+                    state[uid] = time.time()
+                    continue
+
+                # اختر أول سهم ضمن السعر المطلوب
                 chosen, chosen_price = None, None
                 for sym in (n.get("tickers") or [])[:MAX_TICKERS_PER_NEWS]:
-                    if not re.match(r"^[A-Z.\-]{1,10}$", str(sym)):
+                    sym = str(sym).upper().strip()
+                    if not re.match(r"^[A-Z.\-]{1,10}$", sym):
                         continue
                     p = get_price(sym)
                     if p and PRICE_MIN <= p <= PRICE_MAX:
@@ -176,7 +213,6 @@ async def run():
                     state[uid] = time.time()
                     continue
 
-                title_ar = translate(title_en)
                 msg = f"🚨 <b>{chosen}</b> | ${chosen_price:.2f}\n📰 {title_ar}{FOOTER}"
 
                 await bot.send_message(
@@ -188,7 +224,9 @@ async def run():
 
                 state[uid] = time.time()
                 save_state()
-                await asyncio.sleep(180)  # توزيع زمني بين الأخبار
+
+                # توزيع بسيط بين الرسائل لو جا أكثر من خبر بنفس الدقيقة
+                await asyncio.sleep(120)
 
         except Exception as e:
             print("ERR:", e)
