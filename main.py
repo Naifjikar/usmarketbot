@@ -36,14 +36,18 @@ WEAK_KEYWORDS = [
     "prediction", "forecast", "price target",
     "analyst", "rating", "ratings", "upgrade", "downgrade",
     "why you should", "here's", "this week", "these stocks",
-    "3 stocks", "5 stocks", "10 stocks", "top stocks",
-    "undervalued", "overvalued", "best ai stocks", "ai stocks"
+    "undervalued", "overvalued",
+    "should you", "should i", "should we",
+    "buy the dip", "dip buy", "buy on weakness",
 ]
 
 AR_WEAK = [
     "أفضل", "افضل", "للشراء", "شراء الآن", "للشراء الآن",
     "ترشيحات", "قائمة", "قوائم", "توصيات", "أسهم مفضلة",
-    "أفضل أسهم", "افضل اسهم", "أسهم للشراء", "للشراء اليوم"
+    "أفضل أسهم", "افضل اسهم", "أسهم للشراء", "للشراء اليوم",
+    "هل يجب", "هل عليك", "هل حان", "هل هذا", "هل ما زال",
+    "شراء الانخفاض", "فرصة شراء", "هل السهم", "يجب عليك شراء",
+    "هل يجب عليك", "هل عليك شراء", "هل يجب علي", "هل يجب عليك شراء الانخفاض"
 ]
 
 # ================= STRONG (أخبار قوية) =================
@@ -61,6 +65,7 @@ STRONG_KEYWORDS = {
     "definitive agreement": 4,
     "contract": 3, "agreement": 2,
     "strategic partnership": 3,
+    "award": 3, "awarded": 3, "contract award": 4,
 
     # أرباح / نتائج
     "earnings": 3, "eps": 4, "revenue": 3,
@@ -68,11 +73,11 @@ STRONG_KEYWORDS = {
     "beats": 4, "misses": 4,
     "profit": 3, "net income": 3,
 
-    # تقنية / إطلاق / عقود
+    # تقنية / إطلاق
     "launch": 2, "launches": 2,
     "new product": 3, "platform": 2,
     "chip": 2, "cybersecurity": 2,
-    "contract award": 4, "awarded": 3,
+    "artificial intelligence": 2, "ai": 2,
 
     # أحداث أخرى قوية
     "buyback": 3, "share repurchase": 3,
@@ -110,19 +115,34 @@ def translate(text: str) -> str:
     except Exception:
         return text
 
+def is_question_style(text: str) -> bool:
+    t = (text or "").strip().lower()
+    # أي عنوان بصيغة سؤال أو دعوة للشراء = مرفوض
+    if "?" in t or "؟" in t:
+        return True
+    starters = ("should ", "is it time", "is this time", "is it a good time")
+    if t.startswith(starters):
+        return True
+    # صيغ عربية شائعة
+    if "هل " in t or "هل يجب" in t or "هل عليك" in t or "يجب عليك" in t:
+        return True
+    return False
+
 def is_weak(title_en: str, title_ar: str) -> bool:
     t = (title_en or "").lower()
     if any(w in t for w in WEAK_KEYWORDS):
         return True
     a = (title_ar or "")
-    return any(w in a for w in AR_WEAK)
+    if any(w in a for w in AR_WEAK):
+        return True
+    return False
 
 def score_news(title: str, desc: str = "") -> int:
     t = (title or "").lower()
     d = (desc or "").lower()
     text = f"{t} {d}"
 
-    # إذا فيه ضعف واضح نوقف مباشرة
+    # لو فيه كلمات ضعف واضحة نوقف
     if any(w in text for w in WEAK_KEYWORDS):
         return 0
 
@@ -185,10 +205,15 @@ async def run():
                     state[uid] = time.time()
                     continue
 
-                # ترجمة سريعة للعناوين (للفلترة العربية + الرسالة)
+                # ترجمة العنوان
                 title_ar = translate(title_en)
 
-                # منع الترشيحات والقوائم (EN + AR)
+                # منع صيغة الأسئلة/الترشيحات (EN + AR)
+                if is_question_style(title_en) or is_question_style(title_ar):
+                    state[uid] = time.time()
+                    continue
+
+                # منع قوائم/ترشيحات/مقالات رأي (EN + AR)
                 if is_weak(title_en, title_ar):
                     state[uid] = time.time()
                     continue
