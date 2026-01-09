@@ -6,11 +6,11 @@ from deep_translator import GoogleTranslator
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# ================= CONFIG =================
-TOKEN = os.getenv("TOKEN")  # Telegram bot token
-CHANNEL = os.getenv("CHANNEL", "@USMarketnow")  # channel username or chat_id
-BENZINGA_KEY = os.getenv("BENZINGA_KEY")  # Benzinga API key
-
+# ================= HARDCODED CONFIG (TEMP) =================
+TOKEN = "PUT_YOUR_TELEGRAM_TOKEN_HERE"
+CHANNEL = "@USMarketnow"
+BENZINGA_KEY = "PUT_YOUR_BENZINGA_KEY_HERE"
+# ==========================================================
 # Polling intervals
 NEWS_INTERVAL_SEC = int(os.getenv("NEWS_INTERVAL_SEC", "60"))
 ECON_INTERVAL_SEC = int(os.getenv("ECON_INTERVAL_SEC", "60"))
